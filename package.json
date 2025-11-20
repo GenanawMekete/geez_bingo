@@ -7,7 +7,7 @@
     "migrate": "node server.js --migrate-only"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   },
   "dependencies": {
     "better-sqlite3": "^8.0.0",
