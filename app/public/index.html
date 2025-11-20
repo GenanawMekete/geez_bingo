@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Geez Bingo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #fafafa;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        #card {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .cell {
+            width: 60px;
+            height: 60px;
+            line-height: 60px;
+            background: white;
+            border-radius: 10px;
+            border: 2px solid #333;
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .marked {
+            background: #4CAF50;
+            color: white;
+        }
+        #drawnNumbers {
+            margin-top: 25px;
+            font-size: 20px;
+        }
+        #joinBtn, #startGameBtn {
+            padding: 12px 22px;
+            background: #0088cc;
+            color: white;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>Geez Bingo Mini App</h2>
+<p id="status">Waiting...</p>
+
+<button id="joinBtn">Join Game</button>
+<button id="startGameBtn" style="display:none;">Start Game</button>
+
+<div id="card"></div>
+
+<div id="drawnNumbers">
+    <h3>Called Numbers:</h3>
+    <div id="numbers"></div>
+</div>
+
+<script>
+    // ==========================
+    // TELEGRAM USER INFO
+    // ==========================
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
+    const user = tg.initDataUnsafe.user;
+    const userId = user.id;
+
+    // ==========================
+    // CONFIG
+    // ==========================
+    const API = "https://YOUR_RENDER_BACKEND.onrender.com/api";
+    const socket = io("https://YOUR_RENDER_BACKEND.onrender.com");
+
+    let gameId = 1; // For now we use a fixed game. Later dynamic.
+    let cardNumbers = [];
+    let marked = [];
+
+    // ==========================
+    // GENERATE BINGO CARD (5x5)
+    // ==========================
+    function generateCard() {
+        let nums = [];
+        while (nums.length < 25) {
+            let n = Math.floor(Math.random() * 75) + 1;
+            if (!nums.includes(n)) nums.push(n);
+        }
+        cardNumbers = nums;
+        renderCard();
+    }
+
+    function renderCard() {
+        const card = document.getElementById("card");
+        card.innerHTML = "";
+
+        cardNumbers.forEach((num, index) => {
+            const div = document.createElement("div");
+            div.className = "cell";
+            div.innerText = num;
+
+            if (marked.includes(num)) div.classList.add("marked");
+
+            div.onclick = () => {
+                marked.push(num);
+                div.classList.add("marked");
+            };
+
+            card.appendChild(div);
+        });
+    }
+
+    // ==========================
+    // JOIN GAME
+    // ==========================
+    document.getElementById("joinBtn").onclick = async () => {
+        await fetch(API + "/game/join", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                userId,
+                gameId,
+                card: cardNumbers
+            })
+        });
+
+        document.getElementById("status").innerText = "Joined Game!";
+        socket.emit("join_game", gameId);
+    };
+
+    // ==========================
+    // START GAME (host only)
+    // ==========================
+    document.getElementById("startGameBtn").onclick = async () => {
+        await fetch(API + "/game/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gameId })
+        });
+    };
+
+    // Show start button only for host
+    if (userId == 111111111) { // change to real host ID
+        document.getElementById("startGameBtn").style.display = "inline-block";
+    }
+
+    // ==========================
+    // SOCKET.IO REAL-TIME EVENTS
+    // ==========================
+    socket.on("connect", () => {
+        socket.emit("join_game", gameId);
+    });
+
+    socket.on("number_called", num => {
+        const el = document.getElementById("numbers");
+        el.innerHTML += `<span style="padding:5px;">${num}</span>`;
+    });
+
+    socket.on("game_update", data => {
+        console.log("Update:", data);
+
+        if (data.status === "running") {
+            document.getElementById("status").innerText = "Game Started!";
+        }
+
+        if (data.draws) {
+            document.getElementById("numbers").innerHTML =
+                data.draws.map(n => `<span style="padding:5px">${n}</span>`).join("");
+        }
+    });
+
+    // INITIAL CARD
+    generateCard();
+
+</script>
+
+</body>
+</html>
