@@ -1,135 +1,185 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Geez Bingo - WebApp</title>
-<style>
-body{font-family:system-ui,Segoe UI,Roboto;background:#f3f4f6;margin:0;color:#0f172a}
-.wrap{max-width:980px;margin:12px auto;padding:12px}
-.header{display:flex;justify-content:space-between;align-items:center}
-.controls{display:flex;gap:8px;margin:12px 0}
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.cell{background:#fff;padding:12px;border-radius:8px;text-align:center;font-weight:700;border:1px solid #e6e6e6;cursor:pointer}
-.cell.marked{background:#10b981;color:white}
-.pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#111827;color:#fff;margin:2px}
-.button{padding:10px;border-radius:8px;border:0;background:#7c3aed;color:#fff;cursor:pointer}
-.small{font-size:13px;color:#475569}
-</style>
+<head>
+    <title>Geez Bingo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #fafafa;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        #card {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .cell {
+            width: 60px;
+            height: 60px;
+            line-height: 60px;
+            background: white;
+            border-radius: 10px;
+            border: 2px solid #333;
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .marked {
+            background: #4CAF50;
+            color: white;
+        }
+        #drawnNumbers {
+            margin-top: 25px;
+            font-size: 20px;
+        }
+        #joinBtn, #startGameBtn {
+            padding: 12px 22px;
+            background: #0088cc;
+            color: white;
+            border-radius: 8px;
+        }
+    </style>
 </head>
+
 <body>
-<div class="wrap">
-  <div class="header">
-    <h2>Geez Bingo</h2>
-    <div class="small" id="uid"></div>
-  </div>
 
-  <div class="controls">
-    <button id="create" class="button">Create</button>
-    <input id="joinid" placeholder="Game ID" style="padding:8px;border-radius:8px;border:1px solid #e6e6e6">
-    <button id="join" class="button">Join</button>
-    <button id="start" class="button">Start Auto Draw</button>
-  </div>
+<h2>Geez Bingo Mini App</h2>
+<p id="status">Waiting...</p>
 
-  <div>Game: <span id="gameid">-</span> | Last: <span id="last">-</span></div>
-  <div style="margin-top:8px" id="drawn" class="small"></div>
+<button id="joinBtn">Join Game</button>
+<button id="startGameBtn" style="display:none;">Start Game</button>
 
-  <h3>Your Card</h3>
-  <div id="card" class="grid"></div>
-  <div style="margin-top:8px"><button id="bingo" class="button">BINGO!</button></div>
-  <div id="msg" class="small" style="margin-top:8px"></div>
+<div id="card"></div>
+
+<div id="drawnNumbers">
+    <h3>Called Numbers:</h3>
+    <div id="numbers"></div>
 </div>
 
 <script>
-const API = '';
-let user = { id: Date.now(), name: 'Guest' };
-document.getElementById('uid').textContent = 'User ' + user.id;
+    // ==========================
+    // TELEGRAM USER INFO
+    // ==========================
+    const tg = window.Telegram.WebApp;
+    tg.expand();
 
-let state = { gameId:null, card: null, marked: [], drawn: [] };
+    const user = tg.initDataUnsafe.user;
+    const userId = user.id;
 
-async function api(path, opts){ const r = await fetch(API + path, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+    // ==========================
+    // CONFIG
+    // ==========================
+    const API = "https://YOUR_RENDER_BACKEND.onrender.com/api";
+    const socket = io("https://YOUR_RENDER_BACKEND.onrender.com");
 
-function renderCard(){
-  const el = document.getElementById('card');
-  el.innerHTML='';
-  const card = state.card || generateCard();
-  card.forEach(n=>{
-    const b = document.createElement('button');
-    b.className='cell' + (state.marked.includes(n) ? ' marked' : '');
-    b.textContent = n;
-    b.onclick = ()=> {
-      if(state.marked.includes(n)) state.marked = state.marked.filter(x=>x!==n); else state.marked.push(n);
-      b.classList.toggle('marked');
-    };
-    el.appendChild(b);
-  });
-}
+    let gameId = 1; // For now we use a fixed game. Later dynamic.
+    let cardNumbers = [];
+    let marked = [];
 
-function generateCard(){
-  const ranges=[[1,15],[16,30],[31,45],[46,60],[61,75]];
-  const cols = ranges.map(r=>{
-    const a=[];
-    while(a.length<5){
-      const n = Math.floor(Math.random()*(r[1]-r[0]+1))+r[0];
-      if(!a.includes(n)) a.push(n);
+    // ==========================
+    // GENERATE BINGO CARD (5x5)
+    // ==========================
+    function generateCard() {
+        let nums = [];
+        while (nums.length < 25) {
+            let n = Math.floor(Math.random() * 75) + 1;
+            if (!nums.includes(n)) nums.push(n);
+        }
+        cardNumbers = nums;
+        renderCard();
     }
-    return a;
-  });
-  const flat=[];
-  for(let i=0;i<5;i++) for(let j=0;j<5;j++) flat.push(cols[j][i]);
-  flat[12] = 'FREE';
-  state.card = flat;
-  return flat;
-}
 
-document.getElementById('create').addEventListener('click', async ()=>{
-  try{
-    const r = await api('/api/game/create', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user_id: user.id })});
-    state.gameId = r.game_id;
-    document.getElementById('gameid').textContent = state.gameId;
-    const j = await api('/api/game/join', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user_id: user.id, full_name: user.name, game_id: state.gameId })});
-    state.card = j.card; state.marked=[]; renderCard(); startPoll();
-  }catch(e){ alert('Create error '+e.message) }
-});
+    function renderCard() {
+        const card = document.getElementById("card");
+        card.innerHTML = "";
 
-document.getElementById('join').addEventListener('click', async ()=>{
-  try{
-    const gid = document.getElementById('joinid').value.trim();
-    if(!gid) return alert('enter game id');
-    const j = await api('/api/game/join', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user_id: user.id, full_name: user.name, game_id: gid })});
-    state.gameId = gid; document.getElementById('gameid').textContent = gid; state.card = j.card; state.marked=[]; renderCard(); startPoll();
-  }catch(e){ alert('Join error '+e.message) }
-});
+        cardNumbers.forEach((num, index) => {
+            const div = document.createElement("div");
+            div.className = "cell";
+            div.innerText = num;
 
-document.getElementById('start').addEventListener('click', async ()=>{
-  if(!state.gameId) return alert('no game');
-  await api('/api/game/start', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ game_id: state.gameId })});
-  alert('Auto draw started');
-});
+            if (marked.includes(num)) div.classList.add("marked");
 
-document.getElementById('bingo').addEventListener('click', async ()=>{
-  if(!state.gameId) return alert('no game');
-  try{
-    const r = await api('/api/game/check-bingo', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ game_id: state.gameId, user_id: user.id, marked: state.marked })});
-    if(r.win) document.getElementById('msg').textContent = '🎉 BINGO!'; else document.getElementById('msg').textContent = 'Not valid: ' + (r.reason||'');
-  }catch(e){ alert('Check error '+e.message) }
-});
+            div.onclick = () => {
+                marked.push(num);
+                div.classList.add("marked");
+            };
 
-async function pollOnce(){
-  if(!state.gameId) return;
-  try{
-    const r = await api('/api/game/draws/' + encodeURIComponent(state.gameId));
-    state.drawn = r.drawn || [];
-    const drawnEl = document.getElementById('drawn'); drawnEl.innerHTML='';
-    state.drawn.forEach(n=>{
-      const d = document.createElement('span'); d.className='pill'; d.textContent = n; drawnEl.appendChild(d);
+            card.appendChild(div);
+        });
+    }
+
+    // ==========================
+    // JOIN GAME
+    // ==========================
+    document.getElementById("joinBtn").onclick = async () => {
+        await fetch(API + "/game/join", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                userId,
+                gameId,
+                card: cardNumbers
+            })
+        });
+
+        document.getElementById("status").innerText = "Joined Game!";
+        socket.emit("join_game", gameId);
+    };
+
+    // ==========================
+    // START GAME (host only)
+    // ==========================
+    document.getElementById("startGameBtn").onclick = async () => {
+        await fetch(API + "/game/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gameId })
+        });
+    };
+
+    // Show start button only for host
+    if (userId == 111111111) { // change to real host ID
+        document.getElementById("startGameBtn").style.display = "inline-block";
+    }
+
+    // ==========================
+    // SOCKET.IO REAL-TIME EVENTS
+    // ==========================
+    socket.on("connect", () => {
+        socket.emit("join_game", gameId);
     });
-    document.getElementById('last').textContent = state.drawn.length ? state.drawn[state.drawn.length-1] : '-';
-  }catch(e){ console.warn('poll', e); }
-}
 
-let pollTimer = null;
-function startPoll(){ if(pollTimer) clearInterval(pollTimer); pollTimer = setInterval(pollOnce, 1500); pollOnce(); }
+    socket.on("number_called", num => {
+        const el = document.getElementById("numbers");
+        el.innerHTML += `<span style="padding:5px;">${num}</span>`;
+    });
 
-renderCard();
+    socket.on("game_update", data => {
+        console.log("Update:", data);
+
+        if (data.status === "running") {
+            document.getElementById("status").innerText = "Game Started!";
+        }
+
+        if (data.draws) {
+            document.getElementById("numbers").innerHTML =
+                data.draws.map(n => `<span style="padding:5px">${n}</span>`).join("");
+        }
+    });
+
+    // INITIAL CARD
+    generateCard();
+
 </script>
+
 </body>
 </html>
